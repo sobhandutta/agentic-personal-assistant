@@ -1,0 +1,32 @@
+# Secrets & credentials
+.env
+auth/credentials/token.json
+auth/credentials/client_secret.json
+
+# Personal data
+data/personal.db
+knowledge_base/
+
+# Generated / reproducible
+vector_store/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+app.log
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
