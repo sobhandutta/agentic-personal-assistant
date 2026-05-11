@@ -90,58 +90,9 @@ TOOL_DEFINITIONS = [
         },
     },
 
-    # ── Tool 3: query_drive ───────────────────────────────────────────────────
-    {
-        "name": "query_drive",
+    # Google Drive and Gmail tools are disabled in this deployment (require OAuth).
 
-        # The description steers the LLM toward this tool for document-style questions
-        # (CV, cover letters, notes) that wouldn't fit in a structured database.
-        # The phrase "wouldn't be in a structured database" helps the LLM distinguish
-        # when to use Drive vs SQLite.
-        "description": (
-            "Read documents from Sobhan's Google Drive, such as CV, YouTube contents, portfolio, "
-            "cover letters, or notes. Use when the question needs document content "
-            "that wouldn't be in a structured database."
-        ),
-
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "Natural language question, e.g. 'YouTube contents', 'Summarize my CV' or 'What projects are in my portfolio?'",
-                }
-            },
-            "required": ["question"],
-        },
-    },
-
-    # ── Tool 4: query_gmail ───────────────────────────────────────────────────
-    {
-        "name": "query_gmail",
-
-        # The description tells the LLM this tool reads LIVE emails from Gmail.
-        # Listing "job offers, interview invites" helps the LLM recognize
-        # when a question is email-related and should route here.
-        "description": (
-            "Search and read emails from Sobhan's Gmail inbox. "
-            "Use for questions about recent messages, job offers, interview invites, "
-            "or any email-based information."
-        ),
-
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "Natural language question, e.g. 'Any interview invites this week?'",
-                }
-            },
-            "required": ["question"],
-        },
-    },
-
-    # ── Tool 5: query_knowledge_base (RAG) ────────────────────────────────────
+    # ── Tool 3: query_knowledge_base (RAG) ────────────────────────────────────
     {
         "name": "query_knowledge_base",
 

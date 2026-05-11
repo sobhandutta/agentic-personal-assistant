@@ -3,9 +3,9 @@
 auth/credentials/token.json
 auth/credentials/client_secret.json
 
-# Personal data
-data/personal.db
-knowledge_base/
+# Personal data (committed for HF deployment — seed DB and knowledge base are needed at runtime)
+# data/personal.db
+# knowledge_base/
 
 # Generated / reproducible
 vector_store/
