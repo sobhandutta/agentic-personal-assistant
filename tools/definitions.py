@@ -105,9 +105,11 @@ TOOL_DEFINITIONS = [
             "Search Sobhan's personal knowledge base using semantic similarity (RAG). "
             "Contains detailed narrative documents about: career history at Ataya, Elisity, "
             "Nuance, and early companies; UX design philosophy and approach; frontend "
-            "engineering expertise; leadership and team building style; education and background. "
-            "Use for in-depth questions about how Sobhan works, thinks, or leads — "
-            "questions that need narrative context beyond what's in the structured database."
+            "engineering expertise; leadership and team building style; education and background; "
+            "creative work and art practice; YouTube channel (BayBong Diary — heart surgery recovery, "
+            "fitness, travel, and lifestyle content); social media presence and online channels. "
+            "Use for any question about Sobhan's personal life, creative output, YouTube, social media, "
+            "hobbies, or anything not covered by the structured database or portfolio site."
         ),
 
         "input_schema": {
