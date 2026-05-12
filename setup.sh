@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup.sh — one-time project setup for full-llm-assistant
+# setup.sh — one-time project setup for agentic-personal-assistant
 # Run: bash setup.sh
 
 set -e

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh — start the full-llm-assistant Gradio app
+# run.sh — start the agentic-personal-assistant Gradio app
 # Run: bash run.sh
 
 set -e
