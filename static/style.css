@@ -125,13 +125,15 @@ html, body { height: 100%; }
 }
 
 .message.welcome {
-    background: var(--surface);
+    background: transparent;
     color: var(--text-muted);
-    align-self: center;
+    align-self: stretch;
     text-align: center;
-    font-size: 0.9rem;
-    max-width: min(90%, 36rem);
+    font-size: 0.875rem;
+    max-width: 100%;
+    padding: 2rem 1rem 1rem;
     box-shadow: none;
+    border-radius: 0;
 }
 
 .message.status {
