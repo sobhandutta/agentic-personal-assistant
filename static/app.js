@@ -34,7 +34,8 @@
     let statusBubble         = null;   // transient status message element
     let reconnectTimeout     = null;
 
-    const WS_URL = `ws://${location.host}/ws/chat`;
+    const WS_PROTOCOL = location.protocol === "https:" ? "wss:" : "ws:";
+    const WS_URL = `${WS_PROTOCOL}//${location.host}/ws/chat`;
 
     // ── WebSocket lifecycle ───────────────────────────────────────────────────
 
