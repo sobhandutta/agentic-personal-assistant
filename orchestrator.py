@@ -132,6 +132,8 @@ class Orchestrator:
         if LLM_PROVIDER == "anthropic":
             # Anthropic has its own SDK with a different interface to OpenAI
             self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            # Async client used by run_stream() for the final streaming response
+            self.async_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
         elif LLM_PROVIDER == "openai":
             # Standard OpenAI SDK — talks to api.openai.com
             self.client = openai_client
@@ -377,3 +379,99 @@ class Orchestrator:
             else:
                 log.error("Unexpected finish_reason: %s", choice.finish_reason)
                 return "Unexpected finish reason. Please try again."
+
+    # ── Streaming path (FastAPI / custom UI) ──────────────────────────────────
+
+    _TOOL_STATUS_LABELS = {
+        "query_sqlite":         "Querying personal database...",
+        "query_portfolio":      "Reading portfolio site...",
+        "query_knowledge_base": "Searching knowledge base...",
+        "query_drive":          "Reading Google Drive...",
+        "query_gmail":          "Searching Gmail...",
+    }
+
+    async def run_stream(self, user_message: str, history: list):
+        """
+        Async generator for the custom UI WebSocket endpoint.
+
+        Yields dicts:
+          {"type": "status", "text": "Searching knowledge base..."}  — during tool calls
+          {"type": "token",  "text": "Hello"}                        — streamed LLM tokens
+          {"type": "done"}                                            — response complete
+          {"type": "error",  "text": "..."}                          — on failure
+
+        Tool-calling rounds are run synchronously in asyncio's thread pool so the
+        event loop is never blocked. The final LLM response is streamed via
+        AsyncAnthropic so tokens arrive word-by-word.
+        """
+        import asyncio
+
+        messages = self.memory.to_messages(history)
+        messages.append({"role": "user", "content": user_message})
+        loop = asyncio.get_event_loop()
+
+        try:
+            while True:
+                # Non-streaming call: detect whether LLM wants tool calls or is ready to answer.
+                # Run in executor so the asyncio event loop is not blocked.
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: _call_with_retry(
+                        self.client.messages.create,
+                        model=ORCHESTRATOR_MODEL,
+                        max_tokens=2048,
+                        system=_SYSTEM_PROMPT,
+                        tools=TOOL_DEFINITIONS,
+                        messages=messages,
+                    )
+                )
+
+                if response.stop_reason == "end_turn":
+                    # Final answer ready — re-run as streaming so the user sees tokens live.
+                    async with self.async_client.messages.stream(
+                        model=ORCHESTRATOR_MODEL,
+                        max_tokens=2048,
+                        system=_SYSTEM_PROMPT,
+                        tools=TOOL_DEFINITIONS,
+                        messages=messages,
+                    ) as stream:
+                        async for text in stream.text_stream:
+                            yield {"type": "token", "text": text}
+                    yield {"type": "done"}
+                    return
+
+                if response.stop_reason == "tool_use":
+                    tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+                    calls = [(b.id, b.name, b.input) for b in tool_use_blocks]
+
+                    for _, name, _ in calls:
+                        label = self._TOOL_STATUS_LABELS.get(name, f"Running {name}...")
+                        yield {"type": "status", "text": label}
+
+                    messages.append({"role": "assistant", "content": response.content})
+
+                    tool_results = await loop.run_in_executor(
+                        None, self._run_tools_parallel, calls
+                    )
+
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {"type": "tool_result", "tool_use_id": cid, "content": result}
+                            for cid, result in tool_results
+                        ],
+                    })
+                    continue
+
+                log.error("run_stream() unexpected stop_reason: %s", response.stop_reason)
+                yield {"type": "error", "text": "Unexpected stop reason. Please try again."}
+                return
+
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529:
+                yield {"type": "error", "text": "The AI service is temporarily overloaded. Please try again."}
+            else:
+                yield {"type": "error", "text": f"API error ({e.status_code}). Please try again."}
+        except Exception:
+            log.exception("Unexpected error in run_stream()")
+            yield {"type": "error", "text": "An unexpected error occurred."}

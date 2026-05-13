@@ -3,11 +3,8 @@ title: Ask About Sobhan
 emoji: 🤖
 colorFrom: blue
 colorTo: purple
-sdk: gradio
-sdk_version: 5.33.0
-app_file: app.py
+sdk: docker
 pinned: false
-python_version: "3.11"
 ---
 
 # agentic-personal-assistant
