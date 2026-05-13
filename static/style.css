@@ -1,0 +1,223 @@
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+/* ── Design tokens: light theme ──────────────────────────────────────────── */
+:root {
+    --bg:            #ffffff;
+    --surface:       #f4f4f5;
+    --surface-hover: #e4e4e7;
+    --user-bubble:   #2563eb;
+    --text:          #111827;
+    --text-inverse:  #ffffff;
+    --text-muted:    #6b7280;
+    --border:        #e5e7eb;
+    --dot-on:        #22c55e;
+    --dot-off:       #ef4444;
+    --input-bg:      #f9fafb;
+    --send-btn:      #2563eb;
+    --radius-lg:     1rem;
+    --radius-md:     0.75rem;
+    --font:          system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --shadow:        0 1px 3px rgba(0,0,0,.08);
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg:            #0f172a;
+        --surface:       #1e293b;
+        --surface-hover: #334155;
+        --user-bubble:   #3b82f6;
+        --text:          #f1f5f9;
+        --text-inverse:  #f1f5f9;
+        --text-muted:    #94a3b8;
+        --border:        #334155;
+        --dot-on:        #4ade80;
+        --dot-off:       #f87171;
+        --input-bg:      #1e293b;
+        --send-btn:      #3b82f6;
+        --shadow:        0 1px 3px rgba(0,0,0,.3);
+    }
+}
+
+/* ── App shell ───────────────────────────────────────────────────────────── */
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;           /* dynamic viewport — correct on mobile browsers */
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 1rem;
+    line-height: 1.6;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+#header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    flex-shrink: 0;
+    z-index: 1;
+}
+
+#header h1 {
+    font-size: 1.0625rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.dot {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+    transition: background-color 0.3s ease;
+    flex-shrink: 0;
+}
+.dot.connected    { background: var(--dot-on); }
+.dot.disconnected { background: var(--dot-off); }
+
+/* ── Chat window ─────────────────────────────────────────────────────────── */
+#chat-window {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+}
+
+/* ── Message bubbles ─────────────────────────────────────────────────────── */
+.message {
+    max-width: min(78%, 36rem);
+    padding: 0.625rem 0.875rem;
+    border-radius: var(--radius-lg);
+    word-break: break-word;
+    white-space: pre-wrap;
+    box-shadow: var(--shadow);
+    animation: fade-in 0.15s ease;
+}
+
+@keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.message.user {
+    background: var(--user-bubble);
+    color: var(--text-inverse);
+    align-self: flex-end;
+    border-bottom-right-radius: 0.25rem;
+}
+
+.message.assistant {
+    background: var(--surface);
+    color: var(--text);
+    align-self: flex-start;
+    border-bottom-left-radius: 0.25rem;
+}
+
+.message.welcome {
+    background: var(--surface);
+    color: var(--text-muted);
+    align-self: center;
+    text-align: center;
+    font-size: 0.9rem;
+    max-width: min(90%, 36rem);
+    box-shadow: none;
+}
+
+.message.status {
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    font-style: italic;
+    align-self: flex-start;
+    padding: 0.1rem 0.25rem;
+    box-shadow: none;
+}
+
+/* Blinking cursor during streaming */
+.streaming::after {
+    content: "▋";
+    animation: blink 0.65s step-end infinite;
+    color: var(--text-muted);
+    margin-left: 1px;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ── Input bar ───────────────────────────────────────────────────────────── */
+#input-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+    flex-shrink: 0;
+}
+
+#user-input {
+    flex: 1;
+    resize: none;
+    overflow-y: hidden;
+    padding: 0.625rem 0.875rem;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--input-bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    max-height: 8rem;
+    transition: border-color 0.2s;
+}
+#user-input:focus {
+    outline: none;
+    border-color: var(--send-btn);
+}
+#user-input::placeholder { color: var(--text-muted); }
+#user-input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+#send-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex-shrink: 0;
+    background: var(--send-btn);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+}
+#send-btn:hover:not(:disabled) { opacity: 0.88; }
+#send-btn:active:not(:disabled) { transform: scale(0.95); }
+#send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Responsive: tablet+ ─────────────────────────────────────────────────── */
+@media (min-width: 640px) {
+    #chat-window { padding: 1.5rem 1.5rem; }
+    #input-bar   { padding: 1rem 1.5rem; padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ── Responsive: desktop — centered, max-width column ───────────────────── */
+@media (min-width: 1024px) {
+    html, body { background: var(--surface); }
+    #app {
+        max-width: 52rem;
+        margin: 0 auto;
+        box-shadow: 0 0 0 1px var(--border), 0 4px 24px rgba(0,0,0,.08);
+        height: 100vh;
+    }
+}
