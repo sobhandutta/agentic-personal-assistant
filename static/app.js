@@ -31,6 +31,7 @@
     let socket               = null;
     let isStreaming          = false;
     let assistantBubble      = null;   // <div> accumulating streamed tokens
+    let assistantRawText     = "";     // raw markdown text for the current bubble
     let statusBubble         = null;   // transient status message element
     let reconnectTimeout     = null;
 
@@ -83,10 +84,12 @@
 
             case "status":
                 // Replace existing status bubble instead of stacking multiple ones
+                // Strip trailing "..." — CSS animates the dots
+                const statusText = chunk.text.replace(/\.{2,}$/, "");
                 if (statusBubble) {
-                    statusBubble.textContent = chunk.text;
+                    statusBubble.textContent = statusText;
                 } else {
-                    statusBubble = appendBubble("status", chunk.text);
+                    statusBubble = appendBubble("status", statusText);
                 }
                 scrollDown();
                 break;
@@ -95,18 +98,21 @@
                 // First token: remove status bubble, create assistant bubble
                 if (!assistantBubble) {
                     removeStatusBubble();
+                    dismissWelcome();
                     assistantBubble = appendBubble("assistant", "");
                     assistantBubble.classList.add("streaming");
                 }
-                assistantBubble.textContent += chunk.text;
+                assistantRawText += chunk.text;
+                assistantBubble.innerHTML = marked.parse(assistantRawText);
                 scrollDown();
                 break;
 
             case "done":
                 if (assistantBubble) {
                     assistantBubble.classList.remove("streaming");
-                    history.push({ role: "assistant", content: assistantBubble.textContent });
+                    history.push({ role: "assistant", content: assistantRawText });
                     assistantBubble = null;
+                    assistantRawText = "";
                 }
                 removeStatusBubble();
                 setStreaming(false);
@@ -118,6 +124,7 @@
                 if (assistantBubble) {
                     assistantBubble.remove();
                     assistantBubble = null;
+                    assistantRawText = "";
                 }
                 appendBubble("assistant", "Error: " + chunk.text);
                 setStreaming(false);
@@ -159,6 +166,11 @@
         return div;
     }
 
+    function dismissWelcome() {
+        const welcome = chatWindow.querySelector(".welcome");
+        if (welcome) welcome.remove();
+    }
+
     function removeStatusBubble() {
         if (statusBubble) {
             statusBubble.remove();
@@ -194,6 +206,51 @@
     });
 
     userInput.addEventListener("input", resizeTextarea);
+
+    // ── Typing showcase ───────────────────────────────────────────────────────
+
+    (function typeShowcase() {
+        const el = document.getElementById("typing-showcase");
+        if (!el) return;
+
+        const topics  = ["my work history", "skills", "YouTube channel", "creative work", "anything else"];
+        const HOLD_MS = 2000;   // pause after fully typed
+        const TYPE_MS = 60;     // ms per character when typing
+        const ERASE_MS = 30;    // ms per character when erasing
+
+        let idx = 0;
+
+        function type(text, done) {
+            let i = 0;
+            (function tick() {
+                el.textContent = text.slice(0, ++i);
+                if (i < text.length) setTimeout(tick, TYPE_MS);
+                else done();
+            })();
+        }
+
+        function erase(done) {
+            (function tick() {
+                const cur = el.textContent;
+                if (cur.length === 0) { done(); return; }
+                el.textContent = cur.slice(0, -1);
+                setTimeout(tick, ERASE_MS);
+            })();
+        }
+
+        function cycle() {
+            type(topics[idx], () => {
+                setTimeout(() => {
+                    erase(() => {
+                        idx = (idx + 1) % topics.length;
+                        setTimeout(cycle, 200);
+                    });
+                }, HOLD_MS);
+            });
+        }
+
+        cycle();
+    })();
 
     // ── Boot ──────────────────────────────────────────────────────────────────
     connect();

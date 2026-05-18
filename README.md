@@ -23,6 +23,7 @@ python data/ingest_kb.py      # build the RAG vector store
 
 # Run
 python main.py                # opens at http://127.0.0.1:7860
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload #open http://localhost:8000
 ```
 
 Every new terminal: `source .venv/bin/activate` before `python main.py`.

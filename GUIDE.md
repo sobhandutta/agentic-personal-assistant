@@ -15,7 +15,6 @@ source .venv/bin/activate
 
 # 2. Install dependencies (one time only)
 pip install -r requirements.txt
-pip install openai chromadb
 
 # 3. Add your API keys (one time only)
 cp .env.example .env
@@ -28,10 +27,19 @@ python data/seed_db.py
 python data/ingest_kb.py
 
 # 6. Run the app
+# Option A — Custom UI with real-time streaming (recommended)
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+# → open http://localhost:8000
+
+# Option B — Gradio UI (simpler, good for quick testing)
 python main.py
+# → open http://localhost:7860
 ```
 
-> Every new terminal session: run `source .venv/bin/activate` before `python main.py`.
+> Every new terminal session: run `source .venv/bin/activate` before starting the server.
+>
+> **Note:** The custom UI (`api.py`) automatically builds the RAG vector store on startup —
+> you can skip step 5 if running that path.
 
 
 ## Table of Contents
@@ -46,13 +54,15 @@ python main.py
 8. [Key Concept: Parallel Dispatch](#8-key-concept-parallel-dispatch)
 9. [Key Concept: Short-Term Memory](#9-key-concept-short-term-memory)
 10. [Key Concept: RAG (Retrieval-Augmented Generation)](#10-key-concept-rag)
-11. [Key Concept: Multi-Provider Support](#11-key-concept-multi-provider-support)
-12. [Key Files — Annotated Walkthroughs](#12-key-files-annotated-walkthroughs)
-13. [Step-by-Step: How to Run It](#13-how-to-run-it)
-14. [Step-by-Step: Enable Google Drive + Gmail](#14-enable-google-drive--gmail)
-15. [Demo Queries to Try](#15-demo-queries-to-try)
-16. [Cost Strategy](#16-cost-strategy)
-17. [What to Study Next](#17-what-to-study-next)
+11. [Key Concept: Token Streaming](#11-key-concept-token-streaming)
+12. [Key Concept: Multi-Provider Support](#12-key-concept-multi-provider-support)
+13. [Key Files — Annotated Walkthroughs](#13-key-files-annotated-walkthroughs)
+14. [Step-by-Step: How to Run It](#14-how-to-run-it)
+15. [Step-by-Step: Enable Google Drive + Gmail](#15-enable-google-drive--gmail)
+16. [Deploying to Hugging Face Spaces](#16-deploying-to-hugging-face-spaces)
+17. [Demo Queries to Try](#17-demo-queries-to-try)
+18. [Cost Strategy](#18-cost-strategy)
+19. [What to Study Next](#19-what-to-study-next)
 
 ---
 
@@ -104,28 +114,36 @@ Here is the full data flow from user question to final answer:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                            USER                                     │
 │   "What is my design philosophy and do I have any new job emails?"  │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     GRADIO UI  (main.py)                            │
-│  Displays the chat. Passes user message + chat history              │
-│  to the orchestrator. Shows the final answer.                       │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                │
-                                ▼
+└────────────────────┬────────────────────────────────────────────────┘
+                     │
+          ┌──────────┴──────────┐
+          ▼                     ▼
+┌──────────────────┐   ┌──────────────────────────────────────────┐
+│  GRADIO UI       │   │  CUSTOM UI  (static/index.html + app.js) │
+│  (main.py)       │   │                                          │
+│                  │   │  Browser ←── WebSocket ──→ api.py        │
+│  Simple chat UI  │   │                                          │
+│  No streaming    │   │  Streams tokens word-by-word:            │
+│  Port 7860       │   │  {"type":"status","text":"Searching..."}  │
+│                  │   │  {"type":"token","text":"Based on"}      │
+│                  │   │  {"type":"done"}                         │
+│                  │   │  Port 8000 (or 7860 on HF Spaces)        │
+└────────┬─────────┘   └─────────────────┬────────────────────────┘
+         │                               │
+         └──────────────┬────────────────┘
+                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                 ORCHESTRATOR  (orchestrator.py)                     │
 │                                                                     │
-│  1. Converts Gradio history → Anthropic message format (memory)    │
-│  2. Calls LLM (sonnet / gpt-4o-mini / llama3.2) with tool defs     │
+│  1. Converts history → Anthropic message format (memory)           │
+│  2. Calls LLM (sonnet-4-6) with tool definitions                   │
 │  3. LLM responds: "I'll call query_knowledge_base AND query_gmail"  │
 │  4. Orchestrator dispatches both tools IN PARALLEL                  │
 │  5. Feeds results back to LLM                                       │
-│  6. LLM writes the final answer                                     │
-└──────┬───────────────────────────────────────────┬──────────────────┘
-       │ (parallel)                                │ (parallel)
-       ▼                                           ▼
+│  6. LLM streams the final answer token-by-token                    │
+└──────┬──────────────────────────────────────────┬───────────────────┘
+       │ (parallel)                               │ (parallel)
+       ▼                                          ▼
 ┌──────────────────────────┐          ┌────────────────────────────┐
 │  KnowledgeBaseAgent      │          │  GmailAgent                │
 │                          │          │                            │
@@ -178,12 +196,21 @@ The manager doesn't have the data. The team members don't have the reasoning. To
 ## 4. File Structure
 
 ```
-sobhan-projects/agentic/
+agentic-personal-assistant/
 │
-├── main.py                      ← START HERE to run the app (Gradio UI)
-├── orchestrator.py              ← The brain — tool-calling loop + provider routing
+├── api.py                       ← PRIMARY ENTRY POINT — FastAPI + WebSocket streaming UI
+├── main.py                      ← Alternative entry point (Gradio UI, no streaming)
+├── app.py                       ← Gradio app module (used by main.py)
+├── orchestrator.py              ← The brain — tool-calling loop + streaming + provider routing
 ├── config.py                    ← All settings: models, provider, paths, limits
+├── Dockerfile                   ← Container definition for Hugging Face Spaces deployment
+├── requirements.txt             ← Python dependencies
 ├── GUIDE.md                     ← This file
+│
+├── static/                      ← Custom chat UI served by api.py
+│   ├── index.html               ← Single-page chat app (the UI you see in the browser)
+│   ├── app.js                   ← WebSocket client: sends messages, streams tokens into UI
+│   └── style.css                ← Chat UI styles
 │
 ├── agents/                      ← One file per data source
 │   ├── base_agent.py            ← Abstract class: all agents implement run(question) → str
@@ -197,19 +224,21 @@ sobhan-projects/agentic/
 │   └── definitions.py           ← Tool schemas for all 5 agents (Anthropic + OpenAI format)
 │
 ├── memory/
-│   └── conversation.py          ← Converts Gradio history into API message format
+│   └── conversation.py          ← Converts chat history into API message format
 │
 ├── knowledge_base/              ← Markdown documents indexed by the RAG agent
 │   ├── career/                  ← ataya.md, elisity.md, nuance.md, early_career.md
 │   ├── expertise/               ← ux_design_philosophy.md, frontend_engineering.md, leadership.md
-│   └── education/               ← background.md
+│   ├── education/               ← background.md
+│   ├── youtube/                 ← youtube.md (YouTube channel info, content style)
+│   └── creative/                ← artist_statement.md, creative_work.md
 │
-├── vector_store/                ← ChromaDB files (auto-generated by ingest_kb.py, gitignored)
+├── vector_store/                ← ChromaDB files (auto-generated, gitignored)
 │
 ├── data/
 │   ├── seed_db.py               ← Run once to create + fill personal.db with your data
 │   ├── personal.db              ← Your SQLite database (auto-created by seed_db.py)
-│   └── ingest_kb.py             ← Run once to build the RAG vector store from knowledge_base/
+│   └── ingest_kb.py             ← Builds the RAG vector store from knowledge_base/
 │
 ├── auth/
 │   ├── google_auth.py           ← Google OAuth2 helper (Drive + Gmail)
@@ -221,7 +250,7 @@ sobhan-projects/agentic/
 
 **Recommended reading order for learning:**
 `config.py` → `tools/definitions.py` → `agents/base_agent.py` → `agents/sqlite_agent.py`
-→ `agents/knowledge_base_agent.py` → `memory/conversation.py` → `orchestrator.py` → `main.py`
+→ `agents/knowledge_base_agent.py` → `memory/conversation.py` → `orchestrator.py` → `api.py` → `static/app.js`
 
 ---
 
@@ -237,9 +266,12 @@ sobhan-projects/agentic/
 | Vector store | ChromaDB | Lightweight, local, no server needed — perfect for learning RAG |
 | Embeddings | OpenAI `text-embedding-3-small` | Fast, cheap, high quality for semantic search |
 | Google APIs | `google-api-python-client` | Official Google library — same as production apps use |
-| UI | Gradio `ChatInterface` | 10 lines of code for a full chat UI |
+| Primary UI | FastAPI + WebSocket (`api.py`) | Real-time token streaming; production-grade |
+| Alternative UI | Gradio `ChatInterface` (`main.py`) | 10 lines of code, good for quick testing |
 | Memory | In-memory Python list | Simple and transparent — no Redis needed for short-term context |
 | Parallelism | `ThreadPoolExecutor` | Runs multiple agents at the same time |
+| Streaming | `AsyncAnthropic` + async generator | Sends tokens to the browser as they're generated |
+| Deployment | Docker + Hugging Face Spaces | Free GPU/CPU hosting with one `Dockerfile` |
 
 ---
 
@@ -482,7 +514,117 @@ of 0° means identical meaning (similarity = 1.0). An angle of 90° means comple
 
 ---
 
-## 11. Key Concept: Multi-Provider Support
+## 11. Key Concept: Token Streaming
+
+### What is streaming?
+
+Without streaming, the LLM generates the **entire answer**, then sends it all at once. The user
+stares at a blank screen, then the full response appears. With streaming, tokens are sent to the
+browser **as they are generated** — the user sees words appear one by one in real time.
+
+### How the LLM streams
+
+Anthropic's SDK has a streaming mode:
+
+```python
+# Non-streaming — waits for the full response
+response = client.messages.create(model=..., messages=...)
+text = response.content[0].text          # available only after the full response arrives
+
+# Streaming — yields tokens as they are generated
+async with async_client.messages.stream(model=..., messages=...) as stream:
+    async for text in stream.text_stream:
+        print(text, end="", flush=True)   # each `text` is a small piece of the answer
+```
+
+### The streaming pipeline in this project
+
+The flow from LLM output to browser involves three layers:
+
+```
+LLM generates tokens
+       │
+       ▼
+run_stream() (async generator in orchestrator.py)
+  yields: {"type": "token", "text": "Hello"}
+          {"type": "token", "text": " there"}
+          {"type": "done"}
+       │
+       ▼
+WebSocket (api.py)
+  sends each JSON dict as a WebSocket message to the browser
+       │
+       ▼
+app.js (browser)
+  receives each message, appends the text to the chat bubble
+  → user sees the words appear one by one
+```
+
+### What is an async generator?
+
+A regular function returns one value and exits. A **generator** uses `yield` to produce a
+sequence of values on demand — the caller gets the next value each time it asks.
+
+An **async generator** is the same idea but works in an asynchronous (non-blocking) context:
+
+```python
+# Regular generator — synchronous
+def count():
+    yield 1
+    yield 2
+    yield 3
+
+# Async generator — each yield can be awaited
+async def stream_tokens():
+    async for text in llm.stream():
+        yield {"type": "token", "text": text}
+    yield {"type": "done"}
+
+# The caller iterates it with `async for`
+async for chunk in stream_tokens():
+    await websocket.send_json(chunk)
+```
+
+The `run_stream()` method in `orchestrator.py` is exactly this: an async generator that yields
+status messages during tool calls, then streams LLM tokens, then yields a done signal.
+
+### Why the hybrid approach (non-streaming tools, streaming answer)?
+
+Tool calls (searching the database, fetching emails, etc.) are not text — they return discrete
+results. Only the **final answer** from the LLM is streamed, because that is the part the user
+is waiting to read word by word.
+
+```
+Tool-calling rounds: run_in_executor (blocking, in a thread)
+  → yields {"type": "status", "text": "Searching knowledge base..."}
+
+Final answer: async stream
+  → yields {"type": "token", "text": "Based on..."}, {"type": "token", "text": " your..."}
+```
+
+### What is a WebSocket?
+
+A regular HTTP request works like a phone call you hang up after asking one question.
+A **WebSocket** is a persistent, two-way channel — both sides can send messages at any time
+without re-connecting. This is essential for streaming: the server keeps sending token chunks
+down the same open connection while the client keeps updating the UI.
+
+```
+Regular HTTP:         client → request → server → response → connection closed
+WebSocket:            client ←─────── open connection ──────→ server
+                              ← token: "Based"
+                              ← token: " on"
+                              ← token: " your skills..."
+                              ← done
+                      (connection stays open for the next message)
+```
+
+In `api.py`, the `/ws/chat` endpoint handles this. In `app.js`, the browser opens one
+WebSocket on page load and reuses it for every message.
+
+---
+
+## 12. Key Concept: Multi-Provider Support
 
 The orchestrator supports three LLM providers. Switch with one line in `config.py`:
 
@@ -529,7 +671,7 @@ smaller models are less reliable at tool calling. `llama3.2` works but `qwen2.5:
 
 ---
 
-## 12. Key Files — Annotated Walkthroughs
+## 13. Key Files — Annotated Walkthroughs
 
 ### `config.py` — All settings in one place
 
@@ -670,6 +812,66 @@ Key things to notice:
    and the tool results. This growing list is what gives the LLM "memory" of what it already
    asked and what it learned within one request.
 
+5. **`run_stream()` async generator** — the custom UI uses this instead of `run()`. It yields
+   status messages during tool calls, streams final tokens via `AsyncAnthropic`, and yields a
+   `{"type": "done"}` sentinel when complete. Tool calls run in a thread pool via
+   `loop.run_in_executor()` so the asyncio event loop is never blocked.
+
+6. **`_call_with_retry()`** — wraps every API call with retry logic for Anthropic 529
+   (overloaded) errors. Retries up to 3 times with increasing delays (2s, 5s, 10s).
+
+---
+
+### `api.py` — FastAPI server and WebSocket endpoint
+
+This is the production-style entry point. Three things happen here:
+
+```
+Startup:
+  _build_vector_store() runs once — loads knowledge_base/, embeds, stores in ChromaDB.
+  (So you don't need to run ingest_kb.py manually before starting the server.)
+
+WebSocket /ws/chat:
+  Accepts a JSON message from the browser: {"message": "...", "history": [...]}
+  Calls _orc.run_stream(message, history) — the orchestrator's async generator
+  Sends each yielded chunk as a WebSocket message to the browser
+
+Static files:
+  GET / → serves static/index.html
+  /static/ → serves app.js and style.css
+```
+
+A single `Orchestrator` instance (`_orc`) is shared across all WebSocket connections.
+This is safe because `run_stream()` uses only local variables — no shared mutable state.
+
+---
+
+### `static/app.js` — WebSocket streaming client
+
+The browser-side JavaScript maintains the WebSocket connection and handles the streaming
+protocol:
+
+```javascript
+// Message types sent by the server:
+// {"type": "status", "text": "Searching knowledge base..."}  — show a status indicator
+// {"type": "token",  "text": "Based on..."}                  — append to the chat bubble
+// {"type": "done"}                                            — finalize the bubble
+// {"type": "error",  "text": "..."}                          — show an error
+
+socket.onmessage = (event) => {
+    const chunk = JSON.parse(event.data);
+    if (chunk.type === "token")  appendToken(chunk.text);
+    if (chunk.type === "status") showStatus(chunk.text);
+    if (chunk.type === "done")   finalizeResponse();
+};
+```
+
+The history is managed entirely in the browser (`let history = []`) and sent with every
+message so the server stays stateless — it doesn't remember anything between connections.
+
+The WebSocket URL auto-selects protocol: `ws://` for HTTP, `wss://` for HTTPS (needed on
+Hugging Face Spaces which serves over HTTPS).
+
 ---
 
 ### `data/ingest_kb.py` — Building the RAG vector store
@@ -689,7 +891,7 @@ The `vector_store/` directory is gitignored — it's a generated binary file, no
 
 ---
 
-## 13. How to Run It
+## 14. How to Run It
 
 ### Prerequisites
 
@@ -716,11 +918,16 @@ cp .env.example .env
 #    (edit data/seed_db.py with your real info first)
 python data/seed_db.py
 
-# 3. Build the RAG vector store
+# 3. (Optional) Pre-build the RAG vector store
+#    Skip this if using api.py — it builds the vector store automatically on startup
 python data/ingest_kb.py
-#    → Loads 8 documents, creates 43 chunks, embeds and stores in vector_store/
 
 # 4. Launch the app
+# Option A — Custom streaming UI (recommended)
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+#    → Opens at http://localhost:8000
+
+# Option B — Gradio UI
 python main.py
 #    → Opens at http://127.0.0.1:7860
 ```
@@ -753,7 +960,7 @@ python data/seed_db.py
 
 ---
 
-## 14. Enable Google Drive + Gmail
+## 15. Enable Google Drive + Gmail
 
 These agents degrade gracefully — they return a helpful message if not authenticated.
 Follow these steps when you're ready to connect real Google data:
@@ -792,7 +999,56 @@ Both are read-only. Safe.
 
 ---
 
-## 15. Demo Queries to Try
+## 16. Deploying to Hugging Face Spaces
+
+**Hugging Face Spaces** is a free hosting platform for AI demos. This project ships a `Dockerfile`
+that deploys the custom FastAPI UI directly to Spaces.
+
+### What is Docker?
+
+Docker lets you package an application and all its dependencies into a single file called an
+**image**, which runs identically on any machine. A `Dockerfile` is the recipe for building
+that image.
+
+```dockerfile
+FROM python:3.11-slim       # Start from a base Python image
+
+WORKDIR /app                # All commands run from /app inside the container
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt    # Install dependencies inside the container
+
+COPY . .                    # Copy your source code into the container
+
+EXPOSE 7860                 # Tell Docker which port the app listens on
+
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "7860"]
+# ↑ This runs when the container starts
+```
+
+HF Spaces requires port 7860, which is why the Dockerfile uses 7860 even though local
+development uses 8000.
+
+### Why `wss://` instead of `ws://` on HF Spaces?
+
+HF Spaces serves your app over HTTPS. WebSocket over HTTP is `ws://`; over HTTPS it must
+be `wss://` (the secure variant). The browser-side code in `app.js` handles this automatically:
+
+```javascript
+const WS_PROTOCOL = location.protocol === "https:" ? "wss:" : "ws:";
+const WS_URL = `${WS_PROTOCOL}//${location.host}/ws/chat`;
+```
+
+### Auto-building the vector store
+
+`api.py` calls `_build_vector_store()` on startup before accepting any connections.
+This means in a Docker/HF Spaces environment (which has no pre-built `vector_store/`),
+the embeddings are freshly created from the knowledge base files baked into the image.
+No manual `ingest_kb.py` step needed in production.
+
+---
+
+## 17. Demo Queries to Try
 
 ### Simple — one agent
 
@@ -803,6 +1059,8 @@ Both are read-only. Safe.
 | "What is on my portfolio website?" | PortfolioAgent |
 | "What is my design philosophy?" | KnowledgeBaseAgent |
 | "How do I approach team building?" | KnowledgeBaseAgent |
+| "Tell me about my YouTube channel" | KnowledgeBaseAgent |
+| "What kind of creative work do I do?" | KnowledgeBaseAgent |
 | "Do I have any recent job offer emails?" | GmailAgent |
 | "Summarize my CV from Google Drive" | DriveAgent |
 
@@ -814,6 +1072,7 @@ Both are read-only. Safe.
 | "What are my skills and what does my portfolio say about me?" | SQLiteAgent + PortfolioAgent |
 | "Give me a full professional summary" | SQLiteAgent + PortfolioAgent + KnowledgeBaseAgent |
 | "Any interview emails and what is my leadership style?" | GmailAgent + KnowledgeBaseAgent |
+| "What is my YouTube content about and what are my technical skills?" | KnowledgeBaseAgent + SQLiteAgent |
 
 ### Memory — follow-up questions
 
@@ -824,7 +1083,7 @@ Ask any question, then follow up:
 
 ---
 
-## 16. Cost Strategy
+## 18. Cost Strategy
 
 Each user query triggers multiple LLM calls. Here is how costs are managed:
 
@@ -854,7 +1113,7 @@ You still need OpenAI for embeddings, but at ~$0.00002 per query that is essenti
 
 ---
 
-## 17. What to Study Next
+## 19. What to Study Next
 
 ### Immediate extensions to this project
 
@@ -862,9 +1121,12 @@ You still need OpenAI for embeddings, but at ~$0.00002 per query that is essenti
   (the `rag-experiment/pro_implementation/` folder shows this pattern)
 - **Query rewriting** — have the LLM rephrase vague questions before embedding them
   (handles follow-ups like "tell me more about her" that lack context)
-- **Streaming** — use `client.messages.stream()` for real-time token output in Gradio
 - **Prompt caching** — cache the system prompt with Anthropic's cache header to cut costs 90%
 - **Permanent memory** — after each conversation, store key facts back into the SQLite DB
+- **Thinking / reasoning** — use extended thinking mode (Claude's chain-of-thought) for
+  multi-step questions that require explicit reasoning steps
+
+> **Already implemented:** streaming (`run_stream()`), WebSocket transport, Docker deployment
 
 ### Deeper agentic patterns
 
@@ -946,3 +1208,32 @@ AFTER (RAG):
   Query time:    question → vector → find similar chunks → LLM answers from chunks
   → Fast, cheap, scales to thousands of documents
 ```
+
+### Two-minute mental model of streaming
+
+```
+WITHOUT streaming:  user sends message → server thinks → server sends full reply
+  → User sees: blank ... blank ... blank ... [full answer appears]
+
+WITH streaming (WebSocket + async generator):
+  user sends message → server starts thinking → server sends tokens as they arrive
+  → User sees: "Based" " on" " your" " work" " at" " Elisity..."
+  → Much more responsive. Same total time, but feels much faster.
+
+How it works in this project:
+  run_stream() yields chunks → api.py sends each chunk over WebSocket → app.js appends to DOM
+```
+
+### Knowledge base categories
+
+```
+knowledge_base/
+  career/    — work history at Ataya, Elisity, Nuance, early roles
+  expertise/ — design philosophy, frontend engineering, leadership
+  education/ — academic background
+  youtube/   — YouTube channel: content style, topics, approach
+  creative/  — creative work and artist statement
+```
+
+All five categories are automatically ingested by `ingest_kb.py` (or on startup via `api.py`)
+and searched together by `KnowledgeBaseAgent` using semantic similarity.
