@@ -24,6 +24,24 @@ log = logging.getLogger("api")
 sys.path.insert(0, str(Path(__file__).parent))
 
 def _build_vector_store():
+    """Build the vector store only if it doesn't already have data.
+    Rebuilding on every startup is dangerous: the collection is deleted first,
+    so if the OpenAI embedding call fails, the knowledge base is gone."""
+    try:
+        from chromadb import PersistentClient
+        from pathlib import Path as _Path
+        _store_path = str(_Path(__file__).parent / "vector_store")
+        _collection_name = "sobhan_knowledge_base"
+        chroma = PersistentClient(path=_store_path)
+        existing = [c.name for c in chroma.list_collections()]
+        if _collection_name in existing:
+            count = chroma.get_collection(_collection_name).count()
+            if count > 0:
+                log.info("Vector store already has %d chunks — skipping rebuild.", count)
+                return
+    except Exception:
+        pass  # can't check, fall through to build attempt
+
     log.info("Building RAG vector store from knowledge_base/...")
     try:
         from data.ingest_kb import load_documents, create_chunks, embed_and_store
