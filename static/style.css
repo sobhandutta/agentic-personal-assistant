@@ -115,7 +115,9 @@ html, body { height: 100%; }
     color: #ffffff;
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 15px;
+    font-weight: 400;
     line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
     align-self: flex-end;
     border-bottom-right-radius: 0.25rem;
 }
@@ -125,7 +127,9 @@ html, body { height: 100%; }
     color: #0a0a0a;
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 15px;
+    font-weight: 400;
     line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
     align-self: stretch;
     max-width: 100%;
     border-bottom-left-radius: 0.25rem;
