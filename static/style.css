@@ -124,7 +124,7 @@ html, body { height: 100%; }
 
 .message.assistant {
     background: var(--surface);
-    color: #0a0a0a;
+    color: var(--text);
     font-family: 'Inter', system-ui, sans-serif;
     font-size: 15px;
     font-weight: 400;
